@@ -1,0 +1,79 @@
+name: Secure Build, Scan, and Deploy
+
+on:
+  pull_request:
+
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  security-events: write
+  id-token: write
+
+jobs:
+  # -------------------
+  # SECURITY SCANS (PR)
+  # -------------------
+  scan:
+    name: Security Scans on PR
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+
+    env:
+      SONAR_PROJECT_KEY: my-project  # replace with your SonarQube project key
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Build (without tests)
+        run: mvn clean package -DskipTests=true
+
+      - name: Gitleaks Secret Scan
+        uses: gitleaks/gitleaks-action@v2
+        with:
+          args: detect --source . --no-git --report-path gitleaks-report.json --report-format json --exit-code 1
+
+      # CodeQL
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: java
+          build-mode: autobuild
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "java"
+
+      # SonarQube PR Scan
+      - name: SonarQube Scan
+        if: github.event_name == 'push'
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+        run: |
+          mvn -B sonar:sonar \
+            -Dsonar.projectKey=${{ env.SONAR_PROJECT_KEY }} \
+            -Dsonar.host.url=$SONAR_HOST_URL \
+            -Dsonar.login=$SONAR_TOKEN \
+            -Dsonar.pullrequest.key=${{ github.event.pull_request.number }} \
+            -Dsonar.pullrequest.branch=${{ github.head_ref }} \
+            -Dsonar.pullrequest.base=${{ github.base_ref }}
+
+  
+    
+
+
