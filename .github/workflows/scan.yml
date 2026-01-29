@@ -2,6 +2,8 @@ name: Secure Build, Scan, and Deploy
 
 on:
   pull_request:
+    branches:
+      - main
 
 
 concurrency:
